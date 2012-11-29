@@ -32,5 +32,7 @@ namespace MongoDB.Web.Config
 		public int MemoryCacheExpireSeconds { get; set; }
 		[ConfigurationProperty("maxInMemoryCachedSessions", DefaultValue = 10000L)]
 		public long MaxInMemoryCachedSessions { get; set; }
+		[ConfigurationProperty("useLock", DefaultValue = true)]
+		public bool UseLock { get; set; }
 	}
 }

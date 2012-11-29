@@ -122,6 +122,7 @@ namespace MongoDB.Web.Providers
 		private string _SessionStateActionsField;
 		private string _SessionItemsField;
 		private SafeMode _SafeMode = null;
+		private bool _UseLock = true;
 
         public override SessionStateStoreData CreateNewStoreData(HttpContext context, int timeout)
         {
@@ -181,6 +182,7 @@ namespace MongoDB.Web.Providers
 			this._MongoCollection = MongoServer.Create(ConnectionHelper.GetDatabaseConnectionString(_MongoWebSection, config))
 				.GetDatabase(ConnectionHelper.GetDatabaseName(_MongoWebSection, config))
 				.GetCollection<T>(config["collection"] ?? _MongoWebSection.SessionState.MongoCollectionName);
+			_UseLock = config["useLock"] == "true" ? true : _MongoWebSection.SessionState.UseLock;
 
 			_SessionDataClassMap = new BsonClassMap<T>();
 			_SessionDataClassMap.AutoMap();
@@ -413,7 +415,20 @@ namespace MongoDB.Web.Providers
 
 			locked = (session != null) && session.Locked;
 			lockId = (session != null) ? (object)session.LockId : null;
-            if (exclusive && (session != null))
+
+			if (!_UseLock && !exclusive)
+			{
+				locked = false;
+				lockId = null;
+				lockAge = TimeSpan.Zero;
+				actions = SessionStateActions.None;
+			}
+			else if (!_UseLock && exclusive && session != null)
+			{
+				locked = true;
+			}
+
+			if (exclusive && session != null)
             {
 				var updatedActions = actions = SessionStateActions.None;
 				var newLockId = Guid.NewGuid().ToString("N");
