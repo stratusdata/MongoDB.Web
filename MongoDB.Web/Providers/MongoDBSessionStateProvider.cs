@@ -29,6 +29,7 @@ namespace MongoDB.Web.Providers
 		string SessionId { get; set; }
 
 		DateTime Created { get; set; }
+		DateTime Accessed { get; set; }
 		DateTime Expires { get; set; }
 		DateTime LockDate { get; set; }
 		bool Locked { get; set; }
@@ -72,6 +73,9 @@ namespace MongoDB.Web.Providers
 		[BsonElement("created")]
 		public DateTime Created { get; set; }
 
+		[BsonElement("accessed")]
+		public DateTime Accessed { get; set; }
+
 		[BsonElement("expires")]
 		public DateTime Expires { get; set; }
 
@@ -113,6 +117,7 @@ namespace MongoDB.Web.Providers
 		private string _LockIdField;
 		private string _LockedField;
 		private string _ExpiresField;
+		private string _AccessedField;
 		private string _LockDateField;
 		private string _SessionStateActionsField;
 		private string _SessionItemsField;
@@ -125,13 +130,16 @@ namespace MongoDB.Web.Providers
 
         public override void CreateUninitializedItem(HttpContext context, string id, int timeout)
         {
+			var now = DateTime.UtcNow;
+
 			var sessionData = new T()
 			{
 				SessionId = id,
 				ApplicationVirtualPath = HostingEnvironment.ApplicationVirtualPath,
-				Created = DateTime.UtcNow,
-				Expires = DateTime.UtcNow.AddMinutes(timeout),
-				LockDate = DateTime.UtcNow,
+				Created = now,
+				Accessed = now,
+				Expires = now.AddMinutes(timeout),
+				LockDate = now,
 				Locked = false,
 				LockId = 0,
 				SessionStateActions = SessionStateActions.InitializeItem,
@@ -181,6 +189,7 @@ namespace MongoDB.Web.Providers
 			_IdField = MapBsonMember(t => t.SessionId);
 			_LockIdField = MapBsonMember(t => t.LockId);
 			_LockedField = MapBsonMember(t => t.Locked);
+			_AccessedField = MapBsonMember(t => t.Accessed);
 			_ExpiresField = MapBsonMember(t => t.Expires);
 			_LockDateField = MapBsonMember(t => t.LockDate);
 			_SessionStateActionsField = MapBsonMember(t => t.SessionStateActions);
@@ -191,6 +200,9 @@ namespace MongoDB.Web.Providers
 			// This also provides better backwards compatibility with the old BsonDocument implementation (field names match)
 			this._MongoCollection.EnsureIndex(
 				IndexKeys.Ascending(_ApplicationVirtualPathField, _IdField), IndexOptions.SetUnique(true));
+
+			// MongoDB TTL collection http://docs.mongodb.org/manual/tutorial/expire-data/
+			this._MongoCollection.EnsureIndex(IndexKeys.Ascending(_AccessedField), IndexOptions.SetTimeToLive(_SessionStateSection.Timeout));
 
 			if (_Cache == null)
 			{
@@ -231,8 +243,15 @@ namespace MongoDB.Web.Providers
         {
 			var query = LookupQuery(id, lockId);
 
-			var newExpires = DateTime.UtcNow.Add(_SessionStateSection.Timeout);
-			var update = Update.Set(_ExpiresField, newExpires).Set(_LockedField, false);
+			var now = DateTime.UtcNow;
+
+			var newAccessed = now;
+			var newExpires = now.Add(_SessionStateSection.Timeout);
+
+			var update = Update
+				.Set(_AccessedField, newAccessed)
+				.Set(_ExpiresField, newExpires)
+				.Set(_LockedField, false);
 
 			T session;
 			_Cache.TryGetValue(id, out session);
@@ -245,6 +264,7 @@ namespace MongoDB.Web.Providers
 					if ((lockId != null) && (session.LockId != (int)lockId))
 						throw new InvalidDataException(String.Format("Cache out of sync with Mongo. Expected {0}, was {1}", lockId, session.LockId));
 
+					session.Accessed = newAccessed;
 					session.Expires = newExpires;
 					session.Locked = false;
 				}
@@ -262,8 +282,15 @@ namespace MongoDB.Web.Providers
         {
 			var query = LookupQuery(id);
 
-			var newExpires = DateTime.UtcNow.Add(_SessionStateSection.Timeout);
-			var update = Update.Set(_ExpiresField, newExpires);
+			var now = DateTime.UtcNow;
+
+			var newAccessed = now;
+			var newExpires = now.Add(_SessionStateSection.Timeout);
+
+			var update = Update
+				.Set(_AccessedField, newAccessed)
+				.Set(_ExpiresField, newExpires);
+
 			_MongoCollection.Update(query, update, _SafeMode);
 
 			T session;
@@ -271,6 +298,7 @@ namespace MongoDB.Web.Providers
 			{
 				lock (session)
 				{
+					session.Accessed = newAccessed;
 					session.Expires = newExpires;
 				}
 			}
@@ -284,15 +312,18 @@ namespace MongoDB.Web.Providers
                 {
                     ((SessionStateItemCollection)item.Items).Serialize(binaryWriter);
 
+					var now = DateTime.UtcNow;
+
 					if (newItem)
 					{
 						var sessionData = new T()
 						{
 							SessionId = id,
 							ApplicationVirtualPath = HostingEnvironment.ApplicationVirtualPath,
-							Created = DateTime.UtcNow,
-							Expires = DateTime.UtcNow.AddMinutes(item.Timeout),
-							LockDate = DateTime.UtcNow,
+							Created = now,
+							Accessed = now,
+							Expires = now.AddMinutes(item.Timeout),
+							LockDate = now,
 							Locked = false,
 							LockId = 0,
 							SessionStateActions = SessionStateActions.None,
@@ -307,9 +338,12 @@ namespace MongoDB.Web.Providers
 					else
 					{
 						var sessionItems = memoryStream.ToArray();
-						var expiration = DateTime.UtcNow.AddMinutes(item.Timeout);
+						var accessed = now;
+						var expiration = now.AddMinutes(item.Timeout);
 						
-						var update = Update.Set(_ExpiresField, expiration)
+						var update = Update
+							.Set(_AccessedField, accessed)
+							.Set(_ExpiresField, expiration)
 							.Set(_LockedField, false)
 							.Set(_SessionItemsField, sessionItems);
 
@@ -326,6 +360,7 @@ namespace MongoDB.Web.Providers
 
 								session.SessionStateItems = sessionItems;
 								session.SessionStateItemsCount = item.Items.Count;
+								session.Accessed = accessed;
 								session.Expires = expiration;
 							}
 						}
