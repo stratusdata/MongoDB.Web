@@ -89,9 +89,9 @@ namespace MongoDB.Web.Providers
 
 	public class MongoSessionStateProvider<T> : SessionStateStoreProviderBase
 		where T : class, ISessionStateData, new()
-    {
+	{
 		private MongoCollection<T> _MongoCollection;
-        private SessionStateSection _SessionStateSection;
+		private SessionStateSection _SessionStateSection;
 		private MongoDbWebSection _MongoWebSection;
 		private BsonClassMap<T> _SessionDataClassMap;
 		private static Cache<string, T> _Cache;
@@ -110,13 +110,13 @@ namespace MongoDB.Web.Providers
 		private SafeMode _SafeMode = null;
 		private bool _UseLock = true;
 
-        public override SessionStateStoreData CreateNewStoreData(HttpContext context, int timeout)
-        {
-            return new SessionStateStoreData(new SessionStateItemCollection(), SessionStateUtility.GetSessionStaticObjects(context), timeout);
-        }
+		public override SessionStateStoreData CreateNewStoreData(HttpContext context, int timeout)
+		{
+			return new SessionStateStoreData(new SessionStateItemCollection(), SessionStateUtility.GetSessionStaticObjects(context), timeout);
+		}
 
-        public override void CreateUninitializedItem(HttpContext context, string id, int timeout)
-        {
+		public override void CreateUninitializedItem(HttpContext context, string id, int timeout)
+		{
 			var now = DateTime.UtcNow;
 
 			var sessionData = new T()
@@ -136,33 +136,33 @@ namespace MongoDB.Web.Providers
 			};
 
 			var result = this._MongoCollection.Insert(sessionData, _SafeMode);
-			if (! result.Ok)
+			if (!result.Ok)
 				throw new Exception(result.ErrorMessage);
 
 			_Cache[id] = sessionData;
-        }
+		}
 
-        public override void Dispose()
-        {
-        }
+		public override void Dispose()
+		{
+		}
 
-        public override void EndRequest(HttpContext context)
-        {
-        }
+		public override void EndRequest(HttpContext context)
+		{
+		}
 
-        public override SessionStateStoreData GetItem(HttpContext context, string id, out bool locked, out TimeSpan lockAge, out object lockId, out SessionStateActions actions)
-        {
-            return GetSessionStateStoreData(false, context, id, out locked, out lockAge, out lockId, out actions);
-        }
+		public override SessionStateStoreData GetItem(HttpContext context, string id, out bool locked, out TimeSpan lockAge, out object lockId, out SessionStateActions actions)
+		{
+			return GetSessionStateStoreData(false, context, id, out locked, out lockAge, out lockId, out actions);
+		}
 
-        public override SessionStateStoreData GetItemExclusive(HttpContext context, string id, out bool locked, out TimeSpan lockAge, out object lockId, out SessionStateActions actions)
-        {
-            return GetSessionStateStoreData(true, context, id, out locked, out lockAge, out lockId, out actions);
-        }
+		public override SessionStateStoreData GetItemExclusive(HttpContext context, string id, out bool locked, out TimeSpan lockAge, out object lockId, out SessionStateActions actions)
+		{
+			return GetSessionStateStoreData(true, context, id, out locked, out lockAge, out lockId, out actions);
+		}
 
-        public override void Initialize(string name, NameValueCollection config)
-        {
-            this._SessionStateSection = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
+		public override void Initialize(string name, NameValueCollection config)
+		{
+			this._SessionStateSection = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
 			this._MongoWebSection = ConfigurationManager.GetSection("mongoDbWeb") as MongoDbWebSection;
 
 			this._MongoCollection = MongoServer.Create(ConnectionHelper.GetDatabaseConnectionString(_MongoWebSection, config))
@@ -220,15 +220,15 @@ namespace MongoDB.Web.Providers
 
 			_SafeMode = SafeMode.Create(safeModeEnabled, fsync, replicasToWrite);
 
-            base.Initialize(name, config);
-        }
+			base.Initialize(name, config);
+		}
 
-        public override void InitializeRequest(HttpContext context)
-        {
-        }
+		public override void InitializeRequest(HttpContext context)
+		{
+		}
 
-        public override void ReleaseItemExclusive(HttpContext context, string id, object lockId)
-        {
+		public override void ReleaseItemExclusive(HttpContext context, string id, object lockId)
+		{
 			var query = LookupQuery(id, lockId);
 
 			var now = DateTime.UtcNow;
@@ -257,17 +257,17 @@ namespace MongoDB.Web.Providers
 					session.Locked = false;
 				}
 			}
-        }
+		}
 
-        public override void RemoveItem(HttpContext context, string id, object lockId, SessionStateStoreData item)
-        {
+		public override void RemoveItem(HttpContext context, string id, object lockId, SessionStateStoreData item)
+		{
 			this._MongoCollection.Remove(LookupQuery(id, lockId), _SafeMode);
 			// We don't care about consistency - even if the lockId doesn't match, the cache will simply be cleared & reloaded
 			_Cache.Remove(id);
-        }
+		}
 
-        public override void ResetItemTimeout(HttpContext context, string id)
-        {
+		public override void ResetItemTimeout(HttpContext context, string id)
+		{
 			var query = LookupQuery(id);
 
 			var now = DateTime.UtcNow;
@@ -290,15 +290,15 @@ namespace MongoDB.Web.Providers
 					session.Expires = newExpires;
 				}
 			}
-        }
+		}
 
-        public override void SetAndReleaseItemExclusive(HttpContext context, string id, SessionStateStoreData item, object lockId, bool newItem)
-        {
-            using (var memoryStream = new MemoryStream())
-            {
-                using (var binaryWriter = new BinaryWriter(memoryStream))
-                {
-                    ((SessionStateItemCollection)item.Items).Serialize(binaryWriter);
+		public override void SetAndReleaseItemExclusive(HttpContext context, string id, SessionStateStoreData item, object lockId, bool newItem)
+		{
+			using (var memoryStream = new MemoryStream())
+			{
+				using (var binaryWriter = new BinaryWriter(memoryStream))
+				{
+					((SessionStateItemCollection)item.Items).Serialize(binaryWriter);
 
 					var now = DateTime.UtcNow;
 
@@ -328,7 +328,7 @@ namespace MongoDB.Web.Providers
 						var sessionItems = memoryStream.ToArray();
 						var accessed = now;
 						var expiration = now.AddMinutes(item.Timeout);
-						
+
 						var update = Update
 							.Set(_AccessedField, accessed)
 							.Set(_ExpiresField, expiration)
@@ -353,24 +353,24 @@ namespace MongoDB.Web.Providers
 							}
 						}
 					}
-                }
-            }
-        }
+				}
+			}
+		}
 
-        public override bool SetItemExpireCallback(SessionStateItemExpireCallback expireCallback)
-        {
-            return false;
-        }
+		public override bool SetItemExpireCallback(SessionStateItemExpireCallback expireCallback)
+		{
+			return false;
+		}
 
-        #region Private Methods
+		#region Private Methods
 
-        private SessionStateStoreData GetSessionStateStoreData(bool exclusive, HttpContext context, string id, out bool locked, out TimeSpan lockAge, out object lockId, out SessionStateActions actions)
+		private SessionStateStoreData GetSessionStateStoreData(bool exclusive, HttpContext context, string id, out bool locked, out TimeSpan lockAge, out object lockId, out SessionStateActions actions)
 		{
 			// Use the same timestamp for all operations, for consistency
 			var now = DateTime.UtcNow;
 
-            actions = SessionStateActions.None;
-            lockAge = TimeSpan.Zero;
+			actions = SessionStateActions.None;
+			lockAge = TimeSpan.Zero;
 
 			var lookupQuery = LookupQuery(id);
 			T session;
@@ -415,7 +415,7 @@ namespace MongoDB.Web.Providers
 			}
 
 			if (exclusive && session != null)
-            {
+			{
 				var updatedActions = actions = SessionStateActions.None;
 				var newLockId = Guid.NewGuid().ToString("N");
 
@@ -448,28 +448,28 @@ namespace MongoDB.Web.Providers
 					else
 						locked = true;
 				}
-            }
+			}
 
-            if (actions == SessionStateActions.InitializeItem)
-                return CreateNewStoreData(context, _SessionStateSection.Timeout.Minutes);
+			if (actions == SessionStateActions.InitializeItem)
+				return CreateNewStoreData(context, _SessionStateSection.Timeout.Minutes);
 			else if (session == null)
 				return null;
 
-            using (var memoryStream = new MemoryStream(session.SessionStateItems ?? new byte[0]))
-            {
-                var sessionStateItems = new SessionStateItemCollection();
+			using (var memoryStream = new MemoryStream(session.SessionStateItems ?? new byte[0]))
+			{
+				var sessionStateItems = new SessionStateItemCollection();
 
-                if (memoryStream.Length > 0)
-                    sessionStateItems = SessionStateItemCollection.Deserialize(new BinaryReader(memoryStream));
+				if (memoryStream.Length > 0)
+					sessionStateItems = SessionStateItemCollection.Deserialize(new BinaryReader(memoryStream));
 
-                return new SessionStateStoreData(sessionStateItems, SessionStateUtility.GetSessionStaticObjects(context), session.Timeout);
-            }
-        }
+				return new SessionStateStoreData(sessionStateItems, SessionStateUtility.GetSessionStaticObjects(context), session.Timeout);
+			}
+		}
 
-		private IMongoQuery LookupQuery (string id)
+		private IMongoQuery LookupQuery(string id)
 		{
 			return Query.And(
-				Query.EQ(_ApplicationVirtualPathField, HostingEnvironment.ApplicationVirtualPath), 
+				Query.EQ(_ApplicationVirtualPathField, HostingEnvironment.ApplicationVirtualPath),
 				Query.EQ(_IdField, id));
 		}
 
@@ -486,8 +486,8 @@ namespace MongoDB.Web.Providers
 		{
 			return _SessionDataClassMap.MapMember(_MemberHelper.GetMember(expression)).ElementName;
 		}
-        #endregion
-    }
+		#endregion
+	}
 
 	public class MongoDBSessionStateProvider : MongoSessionStateProvider<DefaultSessionStateData>
 	{
