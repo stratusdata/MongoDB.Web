@@ -56,10 +56,10 @@ namespace MongoDB.Web.Providers
 		[BsonId]
 		public BsonObjectId Id { get; set; }
 
-		[BsonElement("applicationVirtualPath")]
+		[BsonElement("virtualPath")]
 		public string ApplicationVirtualPath { get; set; }
 
-		[BsonElement("id")]
+		[BsonElement("sessionId")]
 		public string SessionId { get; set; }
 
 		[BsonElement("created")]
@@ -80,13 +80,13 @@ namespace MongoDB.Web.Providers
 		[BsonElement("lockId")]
 		public string LockId { get; set; }
 
-		[BsonElement("sessionStateActions")]
+		[BsonElement("actions")]
 		public SessionStateActions SessionStateActions { get; set; }
 
-		[BsonElement("sessionStateItems")]
+		[BsonElement("items")]
 		public byte[] SessionStateItems { get; set; }
 
-		[BsonElement("sessionStateItemsCount")]
+		[BsonElement("itemsCount")]
 		public int SessionStateItemsCount { get; set; }
 
 		[BsonElement("timeout")]
