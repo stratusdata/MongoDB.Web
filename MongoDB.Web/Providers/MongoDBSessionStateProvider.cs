@@ -42,12 +42,6 @@ namespace MongoDB.Web.Providers
 
 	public class DefaultSessionStateData : ISessionStateData
 	{
-		public class UniqueIdentifier
-		{
-			public string ApplicationVirtualPath { get; set; }
-			public string SessionId { get; set; }
-		}
-
 		public DefaultSessionStateData()
 		{
 			Id = BsonObjectId.GenerateNewId();
