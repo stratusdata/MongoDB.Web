@@ -33,7 +33,7 @@ namespace MongoDB.Web.Providers
 		DateTime Expires { get; set; }
 		DateTime LockDate { get; set; }
 		bool Locked { get; set; }
-		int LockId { get; set; }
+		string LockId { get; set; }
 		SessionStateActions SessionStateActions { get; set; }
 		byte[] SessionStateItems { get; set; }
 		int SessionStateItemsCount { get; set; }
@@ -86,7 +86,7 @@ namespace MongoDB.Web.Providers
 		public bool Locked { get; set; }
 
 		[BsonElement("lockId")]
-		public int LockId { get; set; }
+		public string LockId { get; set; }
 
 		[BsonElement("sessionStateActions")]
 		public SessionStateActions SessionStateActions { get; set; }
@@ -141,7 +141,7 @@ namespace MongoDB.Web.Providers
 				Expires = now.AddMinutes(timeout),
 				LockDate = now,
 				Locked = false,
-				LockId = 0,
+				LockId = Guid.NewGuid().ToString("N"),
 				SessionStateActions = SessionStateActions.InitializeItem,
 				SessionStateItems = new byte[0],
 				SessionStateItemsCount = 0,
@@ -261,7 +261,7 @@ namespace MongoDB.Web.Providers
 				if ((result.DocumentsAffected != 0) && (session != null))
 				{
 					// update the cache if mongo was updated
-					if ((lockId != null) && (session.LockId != (int)lockId))
+					if ((lockId != null) && (session.LockId != (string)lockId))
 						throw new InvalidDataException(String.Format("Cache out of sync with Mongo. Expected {0}, was {1}", lockId, session.LockId));
 
 					session.Accessed = newAccessed;
@@ -325,7 +325,7 @@ namespace MongoDB.Web.Providers
 							Expires = now.AddMinutes(item.Timeout),
 							LockDate = now,
 							Locked = false,
-							LockId = 0,
+							LockId = Guid.NewGuid().ToString("N"),
 							SessionStateActions = SessionStateActions.None,
 							SessionStateItems = memoryStream.ToArray(),
 							SessionStateItemsCount = item.Items.Count,
@@ -355,7 +355,7 @@ namespace MongoDB.Web.Providers
 							if ((result.DocumentsAffected != 0) && (session != null))
 							{
 								// Update the cache if mongo was updated
-								if ((lockId != null) && (session.LockId != (int)lockId))
+								if ((lockId != null) && (session.LockId != (string)lockId))
 									throw new InvalidDataException(String.Format("Cache out of sync with Mongo. Expected {0}, was {1}", lockId, session.LockId));
 
 								session.SessionStateItems = sessionItems;
@@ -416,7 +416,7 @@ namespace MongoDB.Web.Providers
             if (exclusive && (session != null))
             {
 				var updatedActions = actions = SessionStateActions.None;
-				int newLockId = session.LockId + 1;
+				var newLockId = Guid.NewGuid().ToString("N");
 
 				var updateQuery = Query.And(
 					Query.EQ(_ApplicationVirtualPathField, HostingEnvironment.ApplicationVirtualPath),
@@ -474,11 +474,11 @@ namespace MongoDB.Web.Providers
 
 		private IMongoQuery LookupQuery(string id, object lockId)
 		{
-			int lockIdInt = (int?)lockId ?? 0;
+			var lockIdString = lockId as string;
 			return Query.And(
 				Query.EQ(_ApplicationVirtualPathField, HostingEnvironment.ApplicationVirtualPath),
 				Query.EQ(_IdField, id),
-				Query.EQ(_LockIdField, lockIdInt));
+				Query.EQ(_LockIdField, lockIdString));
 		}
 
 		private string MapBsonMember<TReturn>(Expression<Func<T, TReturn>> expression)
