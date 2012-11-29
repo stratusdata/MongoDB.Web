@@ -50,25 +50,17 @@ namespace MongoDB.Web.Providers
 
 		public DefaultSessionStateData()
 		{
-			Id = new UniqueIdentifier();
+			Id = BsonObjectId.GenerateNewId();
 		}
 
 		[BsonId]
-		public UniqueIdentifier Id { get; set; }
+		public BsonObjectId Id { get; set; }
 
 		[BsonElement("applicationVirtualPath")]
-		public string ApplicationVirtualPath
-		{
-			get { return Id.ApplicationVirtualPath; }
-			set { Id.ApplicationVirtualPath = value; }
-		}
+		public string ApplicationVirtualPath { get; set; }
 
 		[BsonElement("id")]
-		public string SessionId
-		{
-			get { return Id.SessionId; }
-			set { Id.SessionId = value; }
-		}
+		public string SessionId { get; set; }
 
 		[BsonElement("created")]
 		public DateTime Created { get; set; }
