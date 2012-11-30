@@ -165,9 +165,19 @@ namespace MongoDB.Web.Providers
 			this._SessionStateSection = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
 			this._MongoWebSection = ConfigurationManager.GetSection("mongoDbWeb") as MongoDbWebSection;
 
-			this._MongoCollection = MongoServer.Create(ConnectionHelper.GetDatabaseConnectionString(_MongoWebSection, config))
-				.GetDatabase(ConnectionHelper.GetDatabaseName(_MongoWebSection, config))
-				.GetCollection<T>(config["collection"] ?? _MongoWebSection.SessionState.MongoCollectionName);
+			var connectionString = ConnectionHelper.GetDatabaseConnectionString(_MongoWebSection, config);
+			var databaseName = ConnectionHelper.GetDatabaseName(_MongoWebSection, config);
+			var collectionName =
+				_MongoWebSection != null
+				&& _MongoWebSection.SessionState != null
+				&& _MongoWebSection.SessionState.MongoCollectionName != null
+				? _MongoWebSection.SessionState.MongoCollectionName
+				: config["collection"];
+
+			this._MongoCollection = MongoServer.Create(connectionString)
+				.GetDatabase(databaseName)
+				.GetCollection<T>(collectionName);
+
 			_UseLock = config["useLock"] == "true" ? true : _MongoWebSection.SessionState.UseLock;
 
 			_SessionDataClassMap = new BsonClassMap<T>();

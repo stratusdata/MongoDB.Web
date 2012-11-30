@@ -39,7 +39,9 @@ namespace MongoDB.Web.Providers
 			if (!string.IsNullOrEmpty(mongoUrl.DatabaseName))
 				return mongoUrl.DatabaseName;
 
-			return (mongoDbWebSection != null)
+			return
+				mongoDbWebSection != null
+				&& mongoDbWebSection.DatabaseName != null
 				? mongoDbWebSection.DatabaseName
 				: config["database"] ?? "ASPNETDB";
         }
