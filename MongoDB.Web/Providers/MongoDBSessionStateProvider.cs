@@ -5,6 +5,7 @@ using System.Configuration;
 using System.Configuration.Provider;
 using System.IO;
 using System.Linq.Expressions;
+using System.Runtime.Caching;
 using System.Web;
 using System.Web.Configuration;
 using System.Web.Hosting;
@@ -95,6 +96,7 @@ namespace MongoDB.Web.Providers
 		private MongoDbWebSection _MongoWebSection;
 		private BsonClassMap<T> _SessionDataClassMap;
 		private static Cache<string, T> _Cache;
+		private static MemoryCache _MemoryCache;
 		private static object _CacheGuarantee = new object();
 		private static MemberHelper<T> _MemberHelper = new MemberHelper<T>();
 
@@ -109,6 +111,7 @@ namespace MongoDB.Web.Providers
 		private string _SessionItemsField;
 		private SafeMode _SafeMode = null;
 		private bool _UseLock = true;
+		private string _DotNetMemoryCacheName;
 
 		public override SessionStateStoreData CreateNewStoreData(HttpContext context, int timeout)
 		{
@@ -139,7 +142,7 @@ namespace MongoDB.Web.Providers
 			if (!result.Ok)
 				throw new Exception(result.ErrorMessage);
 
-			_Cache[id] = sessionData;
+			CacheSet(id, sessionData);
 		}
 
 		public override void Dispose()
@@ -180,6 +183,10 @@ namespace MongoDB.Web.Providers
 
 			_UseLock = config["useLock"] == "true" ? true : _MongoWebSection.SessionState.UseLock;
 
+			_DotNetMemoryCacheName = config["dotNetMemoryCacheName"] == null
+				? _MongoWebSection.SessionState.DotNetMemoryCacheName
+				: config["dotNetMemoryCacheName"];
+
 			_SessionDataClassMap = new BsonClassMap<T>();
 			_SessionDataClassMap.AutoMap();
 
@@ -206,7 +213,12 @@ namespace MongoDB.Web.Providers
 			{
 				lock (_CacheGuarantee)
 				{
-					if (_Cache == null)
+					bool useDotNetMemoryCache = !string.IsNullOrWhiteSpace(_DotNetMemoryCacheName);
+					if (useDotNetMemoryCache && _MemoryCache == null)
+					{
+						_MemoryCache = new MemoryCache(_DotNetMemoryCacheName);
+					}
+					else if (!useDotNetMemoryCache && _Cache == null)
 					{
 						_Cache = new Cache<string, T>.Builder()
 						{
@@ -252,7 +264,7 @@ namespace MongoDB.Web.Providers
 				.Set(_LockedField, false);
 
 			T session;
-			_Cache.TryGetValue(id, out session);
+			CacheTryGetValue(id, out session);
 			lock (session ?? new object())
 			{
 				var result = _MongoCollection.Update(query, update, _SafeMode);
@@ -273,7 +285,7 @@ namespace MongoDB.Web.Providers
 		{
 			this._MongoCollection.Remove(LookupQuery(id, lockId), _SafeMode);
 			// We don't care about consistency - even if the lockId doesn't match, the cache will simply be cleared & reloaded
-			_Cache.Remove(id);
+			CacheRemove(id);
 		}
 
 		public override void ResetItemTimeout(HttpContext context, string id)
@@ -292,7 +304,7 @@ namespace MongoDB.Web.Providers
 			_MongoCollection.Update(query, update, _SafeMode);
 
 			T session;
-			if (_Cache.TryGetValue(id, out session))
+			if (CacheTryGetValue(id, out session))
 			{
 				lock (session)
 				{
@@ -331,7 +343,7 @@ namespace MongoDB.Web.Providers
 						};
 
 						this._MongoCollection.Save(sessionData, _SafeMode);
-						_Cache[id] = sessionData;
+						CacheSet(id, sessionData);
 					}
 					else
 					{
@@ -346,7 +358,7 @@ namespace MongoDB.Web.Providers
 							.Set(_SessionItemsField, sessionItems);
 
 						T session;
-						_Cache.TryGetValue(id, out session);
+						CacheTryGetValue(id, out session);
 						lock (session ?? new object())
 						{
 							var result = _MongoCollection.Update(LookupQuery(id, lockId), update, _SafeMode);
@@ -384,14 +396,14 @@ namespace MongoDB.Web.Providers
 
 			var lookupQuery = LookupQuery(id);
 			T session;
-			if (!_Cache.TryGetValue(id, out session))
+			if (!CacheTryGetValue(id, out session))
 			{
 				session = _MongoCollection.FindOneAs<T>(lookupQuery);
 				if (session != null)
 				{
 					// We need to make sure that this method has a reference to the instance in the cache,
 					// in case there's a race condition when the session is loaded from mongo
-					_Cache.GetOrAdd(id, session, out session);
+					CacheGetOrAdd(id, session, out session);
 				}
 			}
 
@@ -400,7 +412,7 @@ namespace MongoDB.Web.Providers
 				if (session.Expires <= now)
 				{
 					_MongoCollection.Remove(lookupQuery, _SafeMode);
-					_Cache.Remove(new KeyValuePair<string, T>(session.SessionId, session));
+					CacheRemove(new KeyValuePair<string, T>(session.SessionId, session));
 					session = null;
 				}
 				else if (session.Locked)
@@ -496,6 +508,117 @@ namespace MongoDB.Web.Providers
 		{
 			return _SessionDataClassMap.MapMember(_MemberHelper.GetMember(expression)).ElementName;
 		}
+
+		#endregion
+
+		#region Cache Helper Methods
+
+		private bool CacheContains(string key)
+		{
+			if (_Cache != null)
+			{
+				return _Cache.ContainsKey(key);
+			}
+			else if (_MemoryCache != null)
+			{
+				return _MemoryCache.Contains(key);
+			}
+			return false;
+		}
+
+		private bool CacheTryGetValue(string key, out T value)
+		{
+			if (_Cache != null)
+			{
+				return _Cache.TryGetValue(key, out value);
+			}
+			else if (_MemoryCache != null)
+			{
+				value = _MemoryCache.Get(key) as T;
+				if (value != null)
+				{
+					// Bump the expiry in the MemoryCache since we use absolute expiration
+					value.Accessed = DateTime.UtcNow;
+					value.Expires = value.Accessed.AddMinutes(value.Timeout);
+					_MemoryCache.Set(key, value, value.Expires);
+					return true;
+				}
+				return false;
+			}
+			else
+			{
+				value = default(T);
+				return false;
+			}
+		}
+
+		private bool CacheRemove(string key)
+		{
+			if (_Cache != null)
+			{
+				return _Cache.Remove(key);
+			}
+			else if (_MemoryCache != null)
+			{
+				return (_MemoryCache.Remove(key) != null);
+			}
+			return false;
+		}
+
+		private bool CacheRemove(KeyValuePair<string, T> item)
+		{
+			if (_Cache != null)
+			{
+				return _Cache.Remove(item);
+			}
+			return CacheRemove(item.Key);
+		}
+
+		private bool CacheGetOrAdd(string key, T newValue, out T currentValue)
+		{
+			if (_Cache != null)
+			{
+				return _Cache.GetOrAdd(key, newValue, out currentValue);
+			}
+			else if (_MemoryCache != null)
+			{
+				currentValue = (_MemoryCache.AddOrGetExisting(key, newValue, newValue.Expires) as T);
+				return (currentValue != null && currentValue != default(T));
+			}
+			currentValue = newValue;
+			return false;
+		}
+
+		private T CacheGet(string key)
+		{
+			if (_Cache != null)
+			{
+				T value;
+				if (!_Cache.TryGetValue(key, out value))
+				{
+					return default(T);
+				}
+				return value;
+			}
+			else if (_MemoryCache != null)
+			{
+				return _MemoryCache[key] as T;
+			}
+			return default(T);
+		}
+
+		private void CacheSet(string key, T value)
+		{
+			if (_Cache != null)
+			{
+				_Cache[key] = value;
+			}
+			else if (_MemoryCache != null)
+			{
+				_MemoryCache.Set(key, value, value.Expires);
+			}
+		}
+
 		#endregion
 	}
 
