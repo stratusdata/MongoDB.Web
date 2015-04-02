@@ -20,8 +20,6 @@ using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 using MongoDB.Driver.Builders;
 
-using CommonCore.Cache;
-
 namespace MongoDB.Web.Providers
 {
 	public interface ISessionStateData
@@ -95,7 +93,6 @@ namespace MongoDB.Web.Providers
 		private SessionStateSection _SessionStateSection;
 		private MongoDbWebSection _MongoWebSection;
 		private BsonClassMap<T> _SessionDataClassMap;
-		private static Cache<string, T> _Cache;
 		private static MemoryCache _MemoryCache;
 		private static object _CacheGuarantee = new object();
 		private static MemberHelper<T> _MemberHelper = new MemberHelper<T>();
@@ -209,22 +206,15 @@ namespace MongoDB.Web.Providers
 			// MongoDB TTL collection http://docs.mongodb.org/manual/tutorial/expire-data/
 			this._MongoCollection.EnsureIndex(IndexKeys.Ascending(_AccessedField), IndexOptions.SetTimeToLive(_SessionStateSection.Timeout));
 
-			if (_Cache == null)
+			bool useDotNetMemoryCache = !string.IsNullOrWhiteSpace(_DotNetMemoryCacheName);
+
+			if (useDotNetMemoryCache && _MemoryCache == null)
 			{
 				lock (_CacheGuarantee)
 				{
-					bool useDotNetMemoryCache = !string.IsNullOrWhiteSpace(_DotNetMemoryCacheName);
-					if (useDotNetMemoryCache && _MemoryCache == null)
+					if (_MemoryCache == null)
 					{
 						_MemoryCache = new MemoryCache(_DotNetMemoryCacheName);
-					}
-					else if (!useDotNetMemoryCache && _Cache == null)
-					{
-						_Cache = new Cache<string, T>.Builder()
-						{
-							EntryExpiration = new TimeSpan(0, 0, _MongoWebSection.SessionState.MemoryCacheExpireSeconds),
-							MaxEntries = _MongoWebSection.SessionState.MaxInMemoryCachedSessions
-						}.Cache;
 					}
 				}
 			}
@@ -234,11 +224,15 @@ namespace MongoDB.Web.Providers
 
 			bool fsync = _MongoWebSection.FSync;
 			if (config["fsync"] != null)
+			{
 				bool.TryParse(config["fsync"], out fsync);
+			}
 
 			int replicasToWrite = _MongoWebSection.ReplicasToWrite;
 			if ((config["replicasToWrite"] != null) && (!int.TryParse(config["replicasToWrite"], out replicasToWrite)))
+			{
 				throw new ProviderException("replicasToWrite must be a valid integer");
+			}
 
 			_SafeMode = SafeMode.Create(safeModeEnabled, fsync, replicasToWrite);
 
@@ -272,7 +266,9 @@ namespace MongoDB.Web.Providers
 				{
 					// update the cache if mongo was updated
 					if ((lockId != null) && (session.LockId != (string)lockId))
+					{
 						throw new InvalidDataException(String.Format("Cache out of sync with Mongo. Expected {0}, was {1}", lockId, session.LockId));
+					}
 
 					session.Accessed = newAccessed;
 					session.Expires = newExpires;
@@ -306,7 +302,7 @@ namespace MongoDB.Web.Providers
 			T session;
 			if (CacheTryGetValue(id, out session))
 			{
-				lock (session)
+				lock (session ?? new Object())
 				{
 					session.Accessed = newAccessed;
 					session.Expires = newExpires;
@@ -366,7 +362,9 @@ namespace MongoDB.Web.Providers
 							{
 								// Update the cache if mongo was updated
 								if ((lockId != null) && (session.LockId != (string)lockId))
+								{
 									throw new InvalidDataException(String.Format("Cache out of sync with Mongo. Expected {0}, was {1}", lockId, session.LockId));
+								}
 
 								session.SessionStateItems = sessionItems;
 								session.SessionStateItemsCount = item.Items.Count;
@@ -416,9 +414,13 @@ namespace MongoDB.Web.Providers
 					session = null;
 				}
 				else if (session.Locked)
+				{
 					lockAge = now.Subtract(session.LockDate);
+				}
 				else
+				{
 					actions = session.SessionStateActions;
+				}
 			}
 
 			locked = (session != null) && session.Locked;
@@ -468,21 +470,29 @@ namespace MongoDB.Web.Providers
 						session.SessionStateActions = updatedActions;
 					}
 					else
+					{
 						locked = true;
+					}
 				}
 			}
 
 			if (actions == SessionStateActions.InitializeItem)
+			{
 				return CreateNewStoreData(context, _SessionStateSection.Timeout.Minutes);
+			}
 			else if (session == null)
+			{
 				return null;
+			}
 
 			using (var memoryStream = new MemoryStream(session.SessionStateItems ?? new byte[0]))
 			{
 				var sessionStateItems = new SessionStateItemCollection();
 
 				if (memoryStream.Length > 0)
+				{
 					sessionStateItems = SessionStateItemCollection.Deserialize(new BinaryReader(memoryStream));
+				}
 
 				return new SessionStateStoreData(sessionStateItems, SessionStateUtility.GetSessionStaticObjects(context), session.Timeout);
 			}
@@ -515,11 +525,7 @@ namespace MongoDB.Web.Providers
 
 		private bool CacheContains(string key)
 		{
-			if (_Cache != null)
-			{
-				return _Cache.ContainsKey(key);
-			}
-			else if (_MemoryCache != null)
+			if (_MemoryCache != null)
 			{
 				return _MemoryCache.Contains(key);
 			}
@@ -528,11 +534,7 @@ namespace MongoDB.Web.Providers
 
 		private bool CacheTryGetValue(string key, out T value)
 		{
-			if (_Cache != null)
-			{
-				return _Cache.TryGetValue(key, out value);
-			}
-			else if (_MemoryCache != null)
+			if (_MemoryCache != null)
 			{
 				value = _MemoryCache.Get(key) as T;
 				if (value != null)
@@ -554,11 +556,7 @@ namespace MongoDB.Web.Providers
 
 		private bool CacheRemove(string key)
 		{
-			if (_Cache != null)
-			{
-				return _Cache.Remove(key);
-			}
-			else if (_MemoryCache != null)
+			if (_MemoryCache != null)
 			{
 				return (_MemoryCache.Remove(key) != null);
 			}
@@ -567,20 +565,12 @@ namespace MongoDB.Web.Providers
 
 		private bool CacheRemove(KeyValuePair<string, T> item)
 		{
-			if (_Cache != null)
-			{
-				return _Cache.Remove(item);
-			}
 			return CacheRemove(item.Key);
 		}
 
 		private bool CacheGetOrAdd(string key, T newValue, out T currentValue)
 		{
-			if (_Cache != null)
-			{
-				return _Cache.GetOrAdd(key, newValue, out currentValue);
-			}
-			else if (_MemoryCache != null)
+			if (_MemoryCache != null)
 			{
 				currentValue = (_MemoryCache.AddOrGetExisting(key, newValue, newValue.Expires) as T);
 				return (currentValue != null && currentValue != default(T));
@@ -591,16 +581,7 @@ namespace MongoDB.Web.Providers
 
 		private T CacheGet(string key)
 		{
-			if (_Cache != null)
-			{
-				T value;
-				if (!_Cache.TryGetValue(key, out value))
-				{
-					return default(T);
-				}
-				return value;
-			}
-			else if (_MemoryCache != null)
+			if (_MemoryCache != null)
 			{
 				return _MemoryCache[key] as T;
 			}
@@ -609,11 +590,7 @@ namespace MongoDB.Web.Providers
 
 		private void CacheSet(string key, T value)
 		{
-			if (_Cache != null)
-			{
-				_Cache[key] = value;
-			}
-			else if (_MemoryCache != null)
+			if (_MemoryCache != null)
 			{
 				_MemoryCache.Set(key, value, value.Expires);
 			}
